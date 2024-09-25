@@ -55,6 +55,7 @@ var (
 	videoRecorderImage       string
 	logOutputDir             string
 	saveAllLogs              bool
+	kubernetesNamespace      string
 	ggrHost                  *ggr.Host
 	conf                     *config.Config
 	queue                    *protect.Queue
@@ -95,6 +96,7 @@ func init() {
 	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to save session log to")
 	flag.BoolVar(&saveAllLogs, "save-all-logs", false, "Whether to save all logs without considering capabilities")
 	flag.DurationVar(&gracefulPeriod, "graceful-period", 300*time.Second, "graceful shutdown period in time.Duration format, e.g. 300s or 500ms")
+	flag.StringVar(&kubernetesNamespace, "kubernetes-namespace", "selenoid", "a namespace to run pods with browsers in")
 	flag.Parse()
 
 	if version {

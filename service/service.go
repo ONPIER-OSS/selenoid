@@ -5,11 +5,13 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/aerokube/selenoid/config"
 	"github.com/aerokube/selenoid/session"
 	"github.com/docker/docker/client"
+	"k8s.io/client-go/rest"
 )
 
 // Environment - all settings that influence browser startup
@@ -81,13 +83,35 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 		if m.Client == nil {
 			return nil, false
 		}
-		log.Printf("[%d] [USING_DOCKER] [%s] [%s]", requestId, browserName, version)
-		return &Docker{
-			ServiceBase: serviceBase,
-			Environment: *m.Environment,
-			Caps:        caps,
-			Client:      m.Client,
-			LogConfig:   m.Config.ContainerLogs}, true
+		if len(os.Getenv("SELENOID_KUBERNETES_ENABLED")) > 0 {
+			log.Printf("[%d] [USING_KUBERNETES] [%s] [%s]", requestId, browserName, version)
+			config, err := rest.InClusterConfig()
+			if err != nil {
+				log.Printf("[%d] [KUBERNETES_ERROR] [%s]", requestId, err)
+				return nil, false
+			}
+
+			browserNamespace := os.Getenv("SELENOID_KUBERNETES_NAMESPACE")
+			if len(browserNamespace) == 0 {
+				browserNamespace = "selenoid"
+			}
+
+			return &Kubernetes{
+				ServiceBase: serviceBase,
+				Client:      config,
+				Environment: *m.Environment,
+				Caps: caps,
+				BrowserNamespace: browserNamespace,
+			}, true
+		} else {
+			log.Printf("[%d] [USING_DOCKER] [%s] [%s]", requestId, browserName, version)
+			return &Docker{
+				ServiceBase: serviceBase,
+				Environment: *m.Environment,
+				Caps:        caps,
+				Client:      m.Client,
+				LogConfig:   m.Config.ContainerLogs}, true
+		}
 	case []interface{}:
 		log.Printf("[%d] [USING_DRIVER] [%s] [%s]", requestId, browserName, version)
 		return &Driver{ServiceBase: serviceBase, Environment: *m.Environment, Caps: caps}, true

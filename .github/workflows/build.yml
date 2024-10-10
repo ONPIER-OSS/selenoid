@@ -1,71 +1,44 @@
-name: Publish a container image
+name: build
 
 on:
   push:
-  release:
-    types: [published, edited]
+    branches:
+      - master
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    permissions:
-      packages: write
+  golang:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set the SELENOID version from the tag 
-        if: (github.event_name == 'release' && (github.event.action == 'published' || github.event.action == 'edited'))
-        run: |-
-          echo SELENOID_VERSION=${{ github.event.release.tag_name }} >> "$GITHUB_ENV"
-          echo "TAGS=v${GITHUB_SHA}" >> "${GITHUB_ENV}"
-      
-      - name: Set the selenoid version from the tag 
-        if: github.event_name == 'push'
-        run: |-
-          echo SELENOID_VERSION=${{ github.sha }} >> "$GITHUB_ENV"
-
-      - name: Build an image
-        id: build-image
-        uses: redhat-actions/buildah-build@v2
+      - name: Setup Golang
+        uses: actions/setup-go@v3
         with:
-          image: selenoid-dev
-          tags: ${{ env.TAGS }}
-          platforms: linux/amd64, linux/arm64/v8
-          build-args: |
-            SELENOID_VERSION=${{ env.SELENOID_VERSION }}
-          containerfiles: |
-            ./Containerfile
-          labels: ${{ env.ANNOTATIONS }}
+          go-version: ~1.22.5
 
-      - name: Push the image to GHCR
-        id: push-to-ghcr
-        uses: redhat-actions/push-to-registry@v2
+      - uses: actions/cache@v3
         with:
-          image: ${{ steps.build-image.outputs.image }}
-          tags: ${{ steps.build-image.outputs.tags }}
-          registry: ghcr.io/${{ github.repository_owner }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-      - name: Set the version tag (only if released)
-        id: retag-version
-        if: (github.event_name == 'release' && (github.event.action == 'published' || github.event.action == 'edited'))
-        run: |
-          buildah tag \
-          ${{ steps.build-image.outputs.image }}:v${{ github.sha }} \
-          ghcr.io/${{ github.repository_owner }}/selenoid:latest
-          buildah tag \
-          ${{ steps.build-image.outputs.image }}:v${{ github.sha }} \
-          ghcr.io/${{ github.repository_owner }}/selenoid:${{ github.event.release.tag_name }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - name: Push the release image to GHCR
-        if: (github.event_name == 'release' && (github.event.action == 'published' || github.event.action == 'edited'))
-        uses: redhat-actions/push-to-registry@v2
-        with:
-          tags: ghcr.io/${{ github.repository_owner }}/selenoid:latest ghcr.io/${{ github.repository_owner }}/selenoid:${{ github.event.release.tag_name }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+      - name: Test
+        run: ci/test.sh
+
+      - name: Build
+        run: ci/build.sh
+
+      - name: Latest image
+        env:
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ github.token }}
+        run: ci/docker-push.sh latest
+
+      - name: Latest docs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ci/docs.sh latest ${{ secrets.GITHUB_TOKEN }}

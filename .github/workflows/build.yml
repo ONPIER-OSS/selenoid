@@ -21,6 +21,7 @@ jobs:
         if: (github.event_name == 'release' && (github.event.action == 'published' || github.event.action == 'edited'))
         run: |-
           echo SELENOID_VERSION=${{ github.event.release.tag_name }} >> "$GITHUB_ENV"
+          echo "TAGS=v${GITHUB_SHA}" >> "${GITHUB_ENV}"
       
       - name: Set the selenoid version from the tag 
         if: github.event_name == 'push'

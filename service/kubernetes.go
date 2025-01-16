@@ -82,12 +82,12 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 							ContainerPort: 9090,
 						},
 					},
-					Args: []string{
-						"-session-attempt-timeout",
-						"240s",
-						"-service-startup-timeout",
-						"240s",
-					},
+//					Args: []string{
+//						"-session-attempt-timeout",
+//						"240s",
+//						"-service-startup-timeout",
+//						"240s",
+//					},
 					LivenessProbe: &apiv1.Probe{
 						InitialDelaySeconds: 20,
 						TimeoutSeconds: 10,

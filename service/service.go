@@ -85,7 +85,7 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 		}
 		if len(os.Getenv("SELENOID_KUBERNETES_ENABLED")) > 0 {
 			log.Printf("[%d] [USING_KUBERNETES] [%s] [%s]", requestId, browserName, version)
-			config, err := rest.InClusterConfig()
+			inClusterConfig, err := rest.InClusterConfig()
 			if err != nil {
 				log.Printf("[%d] [KUBERNETES_ERROR] [%s]", requestId, err)
 				return nil, false
@@ -98,11 +98,10 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 
 			return &Kubernetes{
 				ServiceBase:      serviceBase,
-				Client:           config,
 				Environment:      *m.Environment,
 				Caps:             caps,
-				BrowserNamespace: browserNamespace,
-			}, true
+				Client:           inClusterConfig,
+				BrowserNamespace: browserNamespace}, true
 		} else {
 			log.Printf("[%d] [USING_DOCKER] [%s] [%s]", requestId, browserName, version)
 			return &Docker{

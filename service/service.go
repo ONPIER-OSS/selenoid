@@ -97,10 +97,10 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 			}
 
 			return &Kubernetes{
-				ServiceBase: serviceBase,
-				Client:      config,
-				Environment: *m.Environment,
-				Caps: caps,
+				ServiceBase:      serviceBase,
+				Client:           config,
+				Environment:      *m.Environment,
+				Caps:             caps,
 				BrowserNamespace: browserNamespace,
 			}, true
 		} else {

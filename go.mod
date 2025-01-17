@@ -5,6 +5,7 @@ go 1.22.0
 toolchain go1.23.0
 
 require (
+	dario.cat/mergo v1.0.1
 	github.com/aerokube/ggr v0.0.0-20240420103110-fc913c480489
 	github.com/aws/aws-sdk-go v1.53.5
 	github.com/docker/docker v26.1.5+incompatible

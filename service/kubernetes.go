@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aerokube/selenoid/session"
 	"log"
-	apiv1 "k8s.io/api/core/v1"
+
+	"dario.cat/mergo"
+	"github.com/aerokube/selenoid/session"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -42,23 +44,27 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	} else {
 		statusURL = k.Service.Path + "/status"
 	}
-	pod := &apiv1.Pod{
+	pod := &corev1.Pod{}
+	if k.Service.PodTemplate != nil {
+		pod = k.Service.PodTemplate
+	}
+	podDefault := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
 				"selenoid-request-id": reqID,
 			},
 		},
-		Spec: apiv1.PodSpec{
-			Containers: []apiv1.Container{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
 				{
 					Name:  "browser",
 					Image: k.Service.Image.(string),
-					Env: env,
-					Ports: []apiv1.ContainerPort{
+					Env:   env,
+					Ports: []corev1.ContainerPort{
 						{
 							Name:          "browser",
-							Protocol:      apiv1.ProtocolTCP,
+							Protocol:      corev1.ProtocolTCP,
 							ContainerPort: 4444,
 						},
 						{
@@ -82,31 +88,31 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 							ContainerPort: 9090,
 						},
 					},
-//					Args: []string{
-//						"-session-attempt-timeout",
-//						"240s",
-//						"-service-startup-timeout",
-//						"240s",
-//					},
-					LivenessProbe: &apiv1.Probe{
+					//					Args: []string{
+					//						"-session-attempt-timeout",
+					//						"240s",
+					//						"-service-startup-timeout",
+					//						"240s",
+					//					},
+					LivenessProbe: &corev1.Probe{
 						InitialDelaySeconds: 20,
-						TimeoutSeconds: 10,
-						PeriodSeconds: 10,
-						FailureThreshold: 20,
-						ProbeHandler: apiv1.ProbeHandler{
-							HTTPGet: &apiv1.HTTPGetAction{
+						TimeoutSeconds:      10,
+						PeriodSeconds:       10,
+						FailureThreshold:    20,
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
 								Port: intstr.FromString("browser"),
 								Path: statusURL,
 							},
 						},
 					},
-					ReadinessProbe: &apiv1.Probe{
+					ReadinessProbe: &corev1.Probe{
 						InitialDelaySeconds: 20,
-						TimeoutSeconds: 10,
-						PeriodSeconds: 10,
-						FailureThreshold: 20,
-						ProbeHandler: apiv1.ProbeHandler{
-							HTTPGet: &apiv1.HTTPGetAction{
+						TimeoutSeconds:      10,
+						PeriodSeconds:       10,
+						FailureThreshold:    20,
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
 								Port: intstr.FromString("browser"),
 								Path: statusURL,
 							},
@@ -115,6 +121,9 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 				},
 			},
 		},
+	}
+	if err := mergo.Merge(pod, podDefault); err != nil {
+		return nil, err
 	}
 	pod, err = podClient.Create(context.Background(), pod, metav1.CreateOptions{})
 	if err != nil {
@@ -125,16 +134,15 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	for starting {
 		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")
 		time.Sleep(10 * time.Second)
-		ready := true
+		ready := false
 		pod, err = podClient.Get(context.Background(), pod.Name, metav1.GetOptions{})
 		if err != nil {
 			log.Print(err)
 		}
-
-		statuses := pod.Status.ContainerStatuses
-		for _, status := range statuses {
-			if !status.Ready {
-				ready = false
+		for _, condition := range pod.Status.Conditions {
+			log.Printf("[KUBERNETES_BACKEND] Condition: %s - %s", condition.Type, condition.Status)
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				ready = true
 			}
 		}
 		if ready {
@@ -144,26 +152,26 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	log.Printf("[KUBERNETES_BACKEND] Pod is ready")
 
 	svcClient := clientset.CoreV1().Services(k.BrowserNamespace)
-	service := &apiv1.Service{
+	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: "v1",
-					Kind: "Pod",
-					UID: pod.GetUID(),
-					Name: pod.GetName(),
+					Kind:       "Pod",
+					UID:        pod.GetUID(),
+					Name:       pod.GetName(),
 				},
 			},
 		},
-		Spec: apiv1.ServiceSpec{
+		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
 				"selenoid-request-id": reqID,
 			},
-			Ports: []apiv1.ServicePort{
+			Ports: []corev1.ServicePort{
 				{
 					Name:     "browser",
-					Protocol: apiv1.ProtocolTCP,
+					Protocol: corev1.ProtocolTCP,
 					Port:     4444,
 				},
 				{
@@ -242,40 +250,40 @@ func (k *Kubernetes) Cancel(ctx context.Context, requestID uint64, podName, serv
 	return nil
 }
 
-func (k *Kubernetes) getEnv(service ServiceBase, caps session.Caps) []apiv1.EnvVar {
-	env := []apiv1.EnvVar{
+func (k *Kubernetes) getEnv(service ServiceBase, caps session.Caps) []corev1.EnvVar {
+	env := []corev1.EnvVar{
 		{
-			Name: "TZ",
+			Name:  "TZ",
 			Value: getTimeZone(service, caps).String(),
 		},
 		{
-			Name: "SCREEN_RESOLUTION",
+			Name:  "SCREEN_RESOLUTION",
 			Value: caps.ScreenResolution,
 		},
 		{
-			Name: "ENABLE_VNC",
+			Name:  "ENABLE_VNC",
 			Value: strconv.FormatBool(caps.VNC),
 		},
 		{
-			Name: "ENABLE_VIDEO",
+			Name:  "ENABLE_VIDEO",
 			Value: strconv.FormatBool(caps.Video),
 		},
 	}
 	if caps.Skin != "" {
-		env = append(env, apiv1.EnvVar{Name: "SKIN", Value: caps.Skin})
+		env = append(env, corev1.EnvVar{Name: "SKIN", Value: caps.Skin})
 	}
 	if caps.VideoCodec != "" {
-		env = append(env, apiv1.EnvVar{Name: "CODEC", Value: caps.VideoCodec})
+		env = append(env, corev1.EnvVar{Name: "CODEC", Value: caps.VideoCodec})
 	}
 
 	for _, serviceEnv := range service.Service.Env {
 		name, value, _ := strings.Cut(serviceEnv, "=")
-		env = append(env, apiv1.EnvVar{Name: name, Value: value})
+		env = append(env, corev1.EnvVar{Name: name, Value: value})
 	}
-	
+
 	for _, capsEnv := range caps.Env {
 		name, value, _ := strings.Cut(capsEnv, "=")
-		env = append(env, apiv1.EnvVar{Name: name, Value: value})
+		env = append(env, corev1.EnvVar{Name: name, Value: value})
 	}
 	return env
 }

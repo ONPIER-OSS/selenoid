@@ -11,6 +11,7 @@ import (
 
 	"github.com/aerokube/selenoid/session"
 	"github.com/docker/docker/api/types/container"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Session - session id and vnc flag
@@ -63,6 +64,7 @@ type Browser struct {
 	Mem             string            `json:"mem,omitempty"`
 	Cpu             string            `json:"cpu,omitempty"`
 	PublishAllPorts bool              `json:"publishAllPorts,omitempty"`
+	PodTemplate     *corev1.Pod       `json:"podTemplate,omitempty"`
 }
 
 // Versions configuration

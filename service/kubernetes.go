@@ -48,7 +48,104 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if k.Service.PodTemplate != nil {
 		pod = k.Service.PodTemplate
 	}
-	podDefault := corev1.Pod{
+	podDefault := k.constructSelenoidRequestPod(name, reqID, env, statusURL)
+	if err := mergo.Merge(pod, podDefault); err != nil {
+		return nil, err
+	}
+	pod, err = podClient.Create(context.Background(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")
+		time.Sleep(10 * time.Second)
+		ready := false
+		pod, err = podClient.Get(context.Background(), pod.Name, metav1.GetOptions{})
+		if err != nil {
+			log.Print(err)
+		}
+		for _, condition := range pod.Status.Conditions {
+			log.Printf("[KUBERNETES_BACKEND] Condition: %s - %s", condition.Type, condition.Status)
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				ready = true
+			}
+		}
+		if ready {
+			break
+		}
+	}
+	log.Printf("[KUBERNETES_BACKEND] Pod is ready")
+
+	svcClient := clientset.CoreV1().Services(k.BrowserNamespace)
+	service := k.constructSelenoidService(name, pod, reqID)
+
+	_, err = svcClient.Create(context.Background(), service, metav1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	// Wait until pod is running
+	podUpdated, err := clientset.CoreV1().Pods(k.BrowserNamespace).Get(context.Background(), name, metav1.GetOptions{})
+	svcUpdated, err := clientset.CoreV1().Services(k.BrowserNamespace).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	// Create a pod
+	// Create a service
+	// Wait until pod is ready
+	// Define the StartedService
+	hp := session.HostPort{
+		Selenium: net.JoinHostPort(fmt.Sprintf("%s.%s.svc.cluster.local", name, k.BrowserNamespace), "4444"),
+	}
+	u := &url.URL{Scheme: "http", Host: hp.Selenium, Path: k.Service.Path}
+	s := StartedService{
+		Url:    u,
+		Origin: net.JoinHostPort(fmt.Sprintf("%s.selenoid.svc.cluster.local", name), "4444"),
+		Container: &session.Container{
+			ID:        string(podUpdated.ObjectMeta.GetUID()),
+			IPAddress: svcUpdated.Spec.ClusterIP,
+			Ports:     map[string]string{"4444": "4444"},
+		},
+		HostPort: hp,
+		Cancel: func() {
+			if err := k.Cancel(context.Background(), k.RequestId, podUpdated.Name, svcUpdated.Name); err != nil {
+				log.Printf("[KUBERNETES_ERROR] %s", err)
+			}
+		},
+	}
+	return &s, nil
+}
+
+func (k *Kubernetes) constructSelenoidService(name string, pod *corev1.Pod, reqID string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					UID:        pod.GetUID(),
+					Name:       pod.GetName(),
+				},
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"selenoid-request-id": reqID,
+			},
+			Ports: []corev1.ServicePort{
+				{Name: "browser", Protocol: corev1.ProtocolTCP, Port: 4444},
+				{Name: "vnc", Protocol: corev1.ProtocolTCP, Port: 5900},
+				{Name: "devtools", Protocol: corev1.ProtocolTCP, Port: 7070},
+				{Name: "fileserver", Protocol: corev1.ProtocolTCP, Port: 8080},
+				{Name: "clipboard", Protocol: corev1.ProtocolTCP, Port: 9090},
+			},
+		},
+	}
+}
+
+func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env []corev1.EnvVar, statusURL string) corev1.Pod {
+	return corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
@@ -62,31 +159,13 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 					Image: k.Service.Image.(string),
 					Env:   env,
 					Ports: []corev1.ContainerPort{
-						{
-							Name:          "browser",
-							Protocol:      corev1.ProtocolTCP,
-							ContainerPort: 4444,
-						},
-						{
-							Name:          "vnc",
-							Protocol:      "TCP",
-							ContainerPort: 5900,
-						},
-						{
-							Name:          "devtools",
-							Protocol:      "TCP",
-							ContainerPort: 7070,
-						},
-						{
-							Name:          "fileserver",
-							Protocol:      "TCP",
-							ContainerPort: 8080,
-						},
-						{
-							Name:          "clipboard",
-							Protocol:      "TCP",
-							ContainerPort: 9090,
-						},
+						{Name: "browser", Protocol: corev1.ProtocolTCP, ContainerPort: 4444},
+						{Name: "vnc", Protocol: corev1.ProtocolTCP, ContainerPort: 5900},
+						{Name: "devtools", Protocol: corev1.ProtocolTCP, ContainerPort: 7070},
+						{Name: "devtools", Protocol: corev1.ProtocolTCP, ContainerPort: 7070},
+						{Name: "fileserver", Protocol: corev1.ProtocolTCP, ContainerPort: 8080},
+						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
+						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
 					},
 					//					Args: []string{
 					//						"-session-attempt-timeout",
@@ -122,115 +201,6 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 			},
 		},
 	}
-	if err := mergo.Merge(pod, podDefault); err != nil {
-		return nil, err
-	}
-	pod, err = podClient.Create(context.Background(), pod, metav1.CreateOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	starting := true
-	for starting {
-		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")
-		time.Sleep(10 * time.Second)
-		ready := false
-		pod, err = podClient.Get(context.Background(), pod.Name, metav1.GetOptions{})
-		if err != nil {
-			log.Print(err)
-		}
-		for _, condition := range pod.Status.Conditions {
-			log.Printf("[KUBERNETES_BACKEND] Condition: %s - %s", condition.Type, condition.Status)
-			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-				ready = true
-			}
-		}
-		if ready {
-			break
-		}
-	}
-	log.Printf("[KUBERNETES_BACKEND] Pod is ready")
-
-	svcClient := clientset.CoreV1().Services(k.BrowserNamespace)
-	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: "v1",
-					Kind:       "Pod",
-					UID:        pod.GetUID(),
-					Name:       pod.GetName(),
-				},
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				"selenoid-request-id": reqID,
-			},
-			Ports: []corev1.ServicePort{
-				{
-					Name:     "browser",
-					Protocol: corev1.ProtocolTCP,
-					Port:     4444,
-				},
-				{
-					Name:     "vnc",
-					Protocol: "TCP",
-					Port:     5900,
-				},
-				{
-					Name:     "devtools",
-					Protocol: "TCP",
-					Port:     7070,
-				},
-				{
-					Name:     "fileserver",
-					Protocol: "TCP",
-					Port:     8080,
-				},
-				{
-					Name:     "clipboard",
-					Protocol: "TCP",
-					Port:     9090,
-				},
-			},
-		},
-	}
-	_, err = svcClient.Create(context.Background(), service, metav1.CreateOptions{})
-	if err != nil {
-		return nil, err
-	}
-	// Wait until pod is running
-	podUpdated, err := clientset.CoreV1().Pods(k.BrowserNamespace).Get(context.Background(), name, metav1.GetOptions{})
-	svcUpdated, err := clientset.CoreV1().Services(k.BrowserNamespace).Get(context.Background(), name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	// Create a pod
-	// Create a service
-	// Wait until pod is ready
-	// Define the StartedService
-	hp := session.HostPort{
-		Selenium: net.JoinHostPort(fmt.Sprintf("%s.%s.svc.cluster.local", name, k.BrowserNamespace), "4444"),
-	}
-	u := &url.URL{Scheme: "http", Host: hp.Selenium, Path: k.Service.Path}
-	s := StartedService{
-		Url:    u,
-		Origin: net.JoinHostPort(fmt.Sprintf("%s.selenoid.svc.cluster.local", name), "4444"),
-		Container: &session.Container{
-			ID:        string(podUpdated.ObjectMeta.GetUID()),
-			IPAddress: svcUpdated.Spec.ClusterIP,
-			Ports:     map[string]string{"4444": "4444"},
-		},
-		HostPort: hp,
-		Cancel: func() {
-			if err := k.Cancel(context.Background(), k.RequestId, podUpdated.Name, svcUpdated.Name); err != nil {
-				log.Printf("[KUBERNETES_ERROR] %s", err)
-			}
-		},
-	}
-	return &s, nil
 }
 
 func (k *Kubernetes) Cancel(ctx context.Context, requestID uint64, podName, serviceName string) error {

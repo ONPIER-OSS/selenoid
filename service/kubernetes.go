@@ -162,17 +162,9 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env 
 						{Name: "browser", Protocol: corev1.ProtocolTCP, ContainerPort: 4444},
 						{Name: "vnc", Protocol: corev1.ProtocolTCP, ContainerPort: 5900},
 						{Name: "devtools", Protocol: corev1.ProtocolTCP, ContainerPort: 7070},
-						{Name: "devtools", Protocol: corev1.ProtocolTCP, ContainerPort: 7070},
 						{Name: "fileserver", Protocol: corev1.ProtocolTCP, ContainerPort: 8080},
 						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
-						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
 					},
-					//					Args: []string{
-					//						"-session-attempt-timeout",
-					//						"240s",
-					//						"-service-startup-timeout",
-					//						"240s",
-					//					},
 					LivenessProbe: &corev1.Probe{
 						InitialDelaySeconds: 20,
 						TimeoutSeconds:      10,

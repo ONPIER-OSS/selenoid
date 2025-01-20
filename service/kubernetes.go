@@ -56,23 +56,18 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if err != nil {
 		return nil, err
 	}
-
+POD_READY:
 	for {
 		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")
 		time.Sleep(10 * time.Second)
-		ready := false
 		pod, err = podClient.Get(context.Background(), pod.Name, metav1.GetOptions{})
 		if err != nil {
 			log.Print(err)
 		}
 		for _, condition := range pod.Status.Conditions {
-			log.Printf("[KUBERNETES_BACKEND] Condition: %s - %s", condition.Type, condition.Status)
 			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-				ready = true
+				break POD_READY
 			}
-		}
-		if ready {
-			break
 		}
 	}
 	log.Printf("[KUBERNETES_BACKEND] Pod is ready")

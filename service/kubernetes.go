@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+  "github.com/google/uuid"
 )
 
 type Kubernetes struct {
@@ -29,14 +30,15 @@ type Kubernetes struct {
 }
 
 func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
+
 	clientset, err := kubernetes.NewForConfig(k.Client)
 	if err != nil {
 		return nil, err
 	}
 
-	name := fmt.Sprintf("selenoid-browser-%d", k.RequestId)
+  name := fmt.Sprintf("selenoid-browser-%d", k.RequestId)
+  uuid := uuid.New()
 	podClient := clientset.CoreV1().Pods(k.BrowserNamespace)
-	reqID := fmt.Sprintf("%d", k.RequestId)
 	env := k.getEnv(k.ServiceBase, k.Caps)
 	var statusURL string
 	if strings.HasSuffix("/", k.Service.Path) {
@@ -48,7 +50,7 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if k.Service.PodTemplate != nil {
 		pod = k.Service.PodTemplate
 	}
-	podDefault := k.constructSelenoidRequestPod(name, reqID, env, statusURL)
+	podDefault := k.constructSelenoidRequestPod(name, uuid.String(), env, statusURL)
 	if err := mergo.Merge(pod, podDefault); err != nil {
 		return nil, err
 	}
@@ -73,7 +75,7 @@ POD_READY:
 	log.Printf("[KUBERNETES_BACKEND] Pod is ready")
 
 	svcClient := clientset.CoreV1().Services(k.BrowserNamespace)
-	service := k.constructSelenoidService(name, pod, reqID)
+	service := k.constructSelenoidService(name, pod, uuid.String())
 
 	_, err = svcClient.Create(context.Background(), service, metav1.CreateOptions{})
 	if err != nil {
@@ -142,7 +144,7 @@ func (k *Kubernetes) constructSelenoidService(name string, pod *corev1.Pod, reqI
 func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env []corev1.EnvVar, statusURL string) corev1.Pod {
 	return corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+      GenerateName: name,
 			Labels: map[string]string{
 				"selenoid-request-id": reqID,
 			},

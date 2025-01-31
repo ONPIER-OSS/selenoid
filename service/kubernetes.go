@@ -58,6 +58,7 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if err != nil {
 		return nil, err
 	}
+  name = pod.Name
 POD_READY:
 	for {
 		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")

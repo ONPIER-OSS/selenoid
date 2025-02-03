@@ -13,6 +13,7 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/aerokube/selenoid/session"
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -29,26 +30,30 @@ type Kubernetes struct {
 }
 
 func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
+
 	clientset, err := kubernetes.NewForConfig(k.Client)
 	if err != nil {
 		return nil, err
 	}
 
-	name := fmt.Sprintf("selenoid-browser-%d", k.RequestId)
+	uuid := uuid.New().String()
+	name := fmt.Sprintf("browser-%s", uuid)
+	log.Printf("[KUBERNETES_BACKEND] new UUID is %s", uuid)
 	podClient := clientset.CoreV1().Pods(k.BrowserNamespace)
-	reqID := fmt.Sprintf("%d", k.RequestId)
 	env := k.getEnv(k.ServiceBase, k.Caps)
+
 	var statusURL string
 	if strings.HasSuffix("/", k.Service.Path) {
 		statusURL = k.Service.Path + "status"
 	} else {
 		statusURL = k.Service.Path + "/status"
 	}
+
 	pod := &corev1.Pod{}
 	if k.Service.PodTemplate != nil {
-		pod = k.Service.PodTemplate
+		pod = k.Service.PodTemplate.DeepCopy()
 	}
-	podDefault := k.constructSelenoidRequestPod(name, reqID, env, statusURL)
+	podDefault := k.constructSelenoidRequestPod(name, uuid, env, statusURL)
 	if err := mergo.Merge(pod, podDefault); err != nil {
 		return nil, err
 	}
@@ -56,6 +61,7 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if err != nil {
 		return nil, err
 	}
+	name = pod.Name
 POD_READY:
 	for {
 		log.Printf("[KUBERNETES_BACKEND] Waiting for the pod to be ready")
@@ -73,7 +79,7 @@ POD_READY:
 	log.Printf("[KUBERNETES_BACKEND] Pod is ready")
 
 	svcClient := clientset.CoreV1().Services(k.BrowserNamespace)
-	service := k.constructSelenoidService(name, pod, reqID)
+	service := k.constructSelenoidService(name, pod, uuid)
 
 	_, err = svcClient.Create(context.Background(), service, metav1.CreateOptions{})
 	if err != nil {

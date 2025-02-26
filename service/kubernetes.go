@@ -15,6 +15,7 @@ import (
 	"github.com/aerokube/selenoid/session"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -181,6 +182,15 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env 
 						{Name: "devtools", Protocol: corev1.ProtocolTCP, ContainerPort: 7070},
 						{Name: "fileserver", Protocol: corev1.ProtocolTCP, ContainerPort: 8080},
 						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceMemory: resource.MustParse("1000Mi"),
+						},
+						Requests: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU:    resource.MustParse("300m"),
+							corev1.ResourceMemory: resource.MustParse("1000Mi"),
+						},
 					},
 					LivenessProbe: &corev1.Probe{
 						InitialDelaySeconds: 20,

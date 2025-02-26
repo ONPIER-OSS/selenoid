@@ -154,11 +154,27 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env 
 			},
 		},
 		Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{
+				{
+					Name: "devshm",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium: corev1.StorageMediumMemory,
+						},
+					},
+				},
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "browser",
 					Image: k.Service.Image.(string),
 					Env:   env,
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "devshm",
+							MountPath: "/dev/shm",
+						},
+					},
 					Ports: []corev1.ContainerPort{
 						{Name: "browser", Protocol: corev1.ProtocolTCP, ContainerPort: 4444},
 						{Name: "vnc", Protocol: corev1.ProtocolTCP, ContainerPort: 5900},

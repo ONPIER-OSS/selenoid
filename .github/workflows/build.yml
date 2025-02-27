@@ -3,7 +3,6 @@ name: build
 on:
   push:
     branches:
-      - master
 
 jobs:
   golang:
@@ -33,10 +32,18 @@ jobs:
         run: ci/build.sh
 
       - name: Latest image
+        if: github.ref == 'refs/heads/master'
         env:
           DOCKER_USERNAME: ${{ github.actor }}
           DOCKER_PASSWORD: ${{ github.token }}
         run: ci/docker-push.sh latest
+      
+      - name: Dev image
+        if: github.ref != 'refs/heads/master'
+        env:
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ github.token }}
+        run: ci/docker-push.sh dev
 
       - name: Latest docs
         env:

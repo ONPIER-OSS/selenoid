@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -54,7 +57,11 @@ func (k *Kubernetes) StartWithCancel() (*StartedService, error) {
 	if k.Service.PodTemplate != nil {
 		pod = k.Service.PodTemplate.DeepCopy()
 	}
-	podDefault := k.constructSelenoidRequestPod(name, uuid, env, statusURL)
+	selenoidOwnerReference, err := k.constructOwnerReference()
+	if err != nil {
+		return nil, err
+	}
+	podDefault := k.constructSelenoidRequestPod(name, selenoidOwnerReference, uuid, env, statusURL)
 	if err := mergo.Merge(pod, podDefault); err != nil {
 		return nil, err
 	}
@@ -146,13 +153,73 @@ func (k *Kubernetes) constructSelenoidService(name string, pod *corev1.Pod, reqI
 	}
 }
 
-func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env []corev1.EnvVar, statusURL string) corev1.Pod {
+// Returns an empty array when an owner reference is not supposed to be set
+func (k *Kubernetes) constructOwnerReference() ([]metav1.OwnerReference, error) {
+	ownerReferences := []metav1.OwnerReference{}
+	_, ok := os.LookupEnv("SELENOID_SET_OWNER_REF")
+	if !ok {
+		return ownerReferences, nil
+	}
+
+	uuid, ok := os.LookupEnv("SELENOID_POD_UUID")
+	if !ok {
+		return ownerReferences, errors.New("set SELENOID_POD_UUID to set owner reference")
+	}
+	name, ok := os.LookupEnv("SELENOID_POD_NAME")
+	if !ok {
+		return ownerReferences, errors.New("set SELENOID_POD_NAME to set owner reference")
+	}
+
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "v1",
+		Kind:       "Pod",
+		Name:       name,
+		UID:        types.UID(uuid),
+	}
+
+	ownerReferences = append(ownerReferences, ownerReference)
+	return ownerReferences, nil
+
+}
+
+func readEnvOrDefault(env, fallback string) string {
+	if value, ok := os.LookupEnv(env); ok {
+		return value
+	}
+	return fallback
+}
+
+func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.OwnerReference, reqID string, env []corev1.EnvVar, statusURL string) corev1.Pod {
+	memoryLimit := readEnvOrDefault("SELENOID_BROWSER_MEMORY_LIMIT", "1500Mi")
+	memoryRequest := readEnvOrDefault("SELENOID_BROWSER_MEMORY_REQUEST", "1500Mi")
+	cpuLimit := readEnvOrDefault("SELENOID_BROWSER_CPU_LIMIT", "")
+	cpuRequest := readEnvOrDefault("SELENOID_BROWSER_CPU_REQUEST", "300m")
+
+	resources := corev1.ResourceRequirements{
+		Limits:   map[corev1.ResourceName]resource.Quantity{},
+		Requests: map[corev1.ResourceName]resource.Quantity{},
+	}
+
+	if len(memoryLimit) > 0 {
+		resources.Limits[corev1.ResourceMemory] = resource.MustParse(memoryLimit)
+	}
+	if len(memoryRequest) > 0 {
+		resources.Requests[corev1.ResourceMemory] = resource.MustParse(memoryRequest)
+	}
+	if len(cpuLimit) > 0 {
+		resources.Limits[corev1.ResourceCPU] = resource.MustParse(cpuLimit)
+	}
+	if len(cpuRequest) > 0 {
+		resources.Requests[corev1.ResourceCPU] = resource.MustParse(cpuRequest)
+	}
+
 	return corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
 				"selenoid-request-id": reqID,
 			},
+			OwnerReferences: ownerRef,
 		},
 		Spec: corev1.PodSpec{
 			Volumes: []corev1.Volume{
@@ -183,15 +250,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, reqID string, env 
 						{Name: "fileserver", Protocol: corev1.ProtocolTCP, ContainerPort: 8080},
 						{Name: "clipboard", Protocol: corev1.ProtocolTCP, ContainerPort: 9090},
 					},
-					Resources: corev1.ResourceRequirements{
-						Limits: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceMemory: resource.MustParse("1000Mi"),
-						},
-						Requests: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU:    resource.MustParse("300m"),
-							corev1.ResourceMemory: resource.MustParse("1000Mi"),
-						},
-					},
+					Resources: resources,
 					LivenessProbe: &corev1.Probe{
 						InitialDelaySeconds: 20,
 						TimeoutSeconds:      10,

@@ -249,7 +249,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 							Command: []string{
 								"sh",
 								"-c",
-								"sleep 10m && kill 1",
+								"sleep 10s && kill 1",
 							},
 						},
 					},

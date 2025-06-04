@@ -194,7 +194,8 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 	memoryRequest := readEnvOrDefault("SELENOID_BROWSER_MEMORY_REQUEST", "1500Mi")
 	cpuLimit := readEnvOrDefault("SELENOID_BROWSER_CPU_LIMIT", "")
 	cpuRequest := readEnvOrDefault("SELENOID_BROWSER_CPU_REQUEST", "300m")
-
+	browserTimeout := readEnvOrDefault("SELENOID_BROWSER_TIMEOUT", "60m")
+	
 	resources := corev1.ResourceRequirements{
 		Limits:   map[corev1.ResourceName]resource.Quantity{},
 		Requests: map[corev1.ResourceName]resource.Quantity{},
@@ -222,6 +223,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 			OwnerReferences: ownerRef,
 		},
 		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
 			Volumes: []corev1.Volume{
 				{
 					Name: "devshm",
@@ -249,7 +251,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 							Command: []string{
 								"sh",
 								"-c",
-								"sleep 10s && kill 1",
+								fmt.Sprintf("sleep %s && kill 1", browserTimeout),
 							},
 						},
 					},

@@ -196,7 +196,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 	cpuRequest := readEnvOrDefault("SELENOID_BROWSER_CPU_REQUEST", "300m")
 	browserTimeoutString := readEnvOrDefault("SELENOID_BROWSER_TIMEOUT_SEC", "3600")
 	browserTimeout, err := strconv.ParseInt(browserTimeoutString, 10, 64)
-	if err == nil {
+	if err != nil {
 		log.Printf("[KUBERNETES_BACKEND] %s", err)
 		log.Printf("[KUBERNETES_BACKEND] couldn't parse browser timeout seconds, settings the default value")
 		browserTimeout = 3600

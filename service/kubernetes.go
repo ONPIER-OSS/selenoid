@@ -194,7 +194,15 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 	memoryRequest := readEnvOrDefault("SELENOID_BROWSER_MEMORY_REQUEST", "1500Mi")
 	cpuLimit := readEnvOrDefault("SELENOID_BROWSER_CPU_LIMIT", "")
 	cpuRequest := readEnvOrDefault("SELENOID_BROWSER_CPU_REQUEST", "300m")
+	browserTimeoutString := readEnvOrDefault("SELENOID_BROWSER_TIMEOUT_SEC", "3600")
+	browserTimeout, err := strconv.ParseInt(browserTimeoutString, 10, 64)
+	if err != nil {
+		log.Printf("[KUBERNETES_BACKEND] %s", err)
+		log.Printf("[KUBERNETES_BACKEND] couldn't parse browser timeout seconds, settings the default value")
+		browserTimeout = 3600
+	}
 
+	
 	resources := corev1.ResourceRequirements{
 		Limits:   map[corev1.ResourceName]resource.Quantity{},
 		Requests: map[corev1.ResourceName]resource.Quantity{},
@@ -222,6 +230,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 			OwnerReferences: ownerRef,
 		},
 		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
 			Volumes: []corev1.Volume{
 				{
 					Name: "devshm",
@@ -232,6 +241,7 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 					},
 				},
 			},
+			ActiveDeadlineSeconds: &browserTimeout,
 			Containers: []corev1.Container{
 				{
 					Name:  "browser",

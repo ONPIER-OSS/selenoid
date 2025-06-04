@@ -243,6 +243,17 @@ func (k *Kubernetes) constructSelenoidRequestPod(name string, ownerRef []metav1.
 							MountPath: "/dev/shm",
 						},
 					},
+					Lifecycle: &corev1.Lifecycle{
+						PostStart: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{
+								"sh",
+								"-c",
+								"sleep 10m && kill 1",
+							},
+						},
+					},
+					},
 					Ports: []corev1.ContainerPort{
 						{Name: "browser", Protocol: corev1.ProtocolTCP, ContainerPort: 4444},
 						{Name: "vnc", Protocol: corev1.ProtocolTCP, ContainerPort: 5900},
